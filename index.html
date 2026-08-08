@@ -22,9 +22,22 @@
 
     <div id="activeClue" hidden aria-live="polite"></div>
 
-    <section class="panel">
-      <div id="crossword" class="crossword" aria-label="クロスワード盤面"></div>
-    </section>
+    <div class="tablet-game-layout">
+      <section class="panel">
+        <div id="crossword" class="crossword" aria-label="クロスワード盤面"></div>
+      </section>
+
+      <aside id="tabletKeyboard" class="tablet-keyboard" aria-label="英字キーボード">
+        <div class="tablet-keyboard-head">
+          <span>INPUT</span>
+          <strong id="tabletKeyboardStatus">SELECT A CELL</strong>
+        </div>
+        <div class="keyboard-row" data-row="qwertyuiop"></div>
+        <div class="keyboard-row" data-row="asdfghjkl"></div>
+        <div class="keyboard-row" data-row="zxcvbnm"></div>
+        <button type="button" id="tabletBackspace" class="keyboard-key keyboard-key-wide" aria-label="1文字削除">⌫ DELETE</button>
+      </aside>
+    </div>
 
     <section class="clues-wrap">
       <div class="clue-card">
