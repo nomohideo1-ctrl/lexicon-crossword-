@@ -45,6 +45,12 @@
     tone({ frequency: 135, endFrequency: 90, duration: 0.1, volume: 0.02, type: 'square', delay: 0.055 });
   }
 
+  function playDecoded() {
+    tone({ frequency: 720, endFrequency: 980, duration: 0.055, volume: 0.023, type: 'square' });
+    tone({ frequency: 1040, endFrequency: 1560, duration: 0.11, volume: 0.027, type: 'triangle', delay: 0.055 });
+    tone({ frequency: 1560, duration: 0.09, volume: 0.012, type: 'sine', delay: 0.13 });
+  }
+
   function playComplete() {
     tone({ frequency: 440, endFrequency: 660, duration: 0.09, volume: 0.026, type: 'square' });
     tone({ frequency: 660, endFrequency: 880, duration: 0.1, volume: 0.028, type: 'square', delay: 0.09 });
@@ -83,6 +89,8 @@
     if (!input.closest('#crossword')) return;
     if (input.value) playInput();
   });
+
+  document.addEventListener('lexicon:word-decoded', playDecoded);
 
   document.getElementById('checkBtn')?.addEventListener('click', () => {
     const result = document.getElementById('result')?.textContent || '';
