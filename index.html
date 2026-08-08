@@ -40,6 +40,29 @@
     <p id="result" class="result" aria-live="polite"></p>
   </main>
 
+  <div id="completeOverlay" class="complete-overlay" hidden>
+    <div class="complete-panel" role="dialog" aria-modal="true" aria-labelledby="completeTitle">
+      <div class="complete-scan"></div>
+      <p class="complete-kicker">LEXICON SEQUENCE COMPLETE</p>
+      <div class="complete-terminal" aria-hidden="true">
+        <span>&gt; validating answers...</span>
+        <span>&gt; vocabulary nodes confirmed</span>
+        <span>&gt; memory integrity: 100%</span>
+        <span>&gt; session complete █</span>
+      </div>
+      <h2 id="completeTitle">MISSION COMPLETE</h2>
+      <div class="complete-stats">
+        <div><span>WORDS DECODED</span><strong id="completeWords">0 / 0</strong></div>
+        <div><span>ACCURACY</span><strong>100%</strong></div>
+        <div><span>STATUS</span><strong>SESSION CLEARED</strong></div>
+      </div>
+      <div class="complete-actions">
+        <button id="newPuzzleBtn">NEW PUZZLE</button>
+        <button id="reviewWordsBtn" class="secondary">REVIEW WORDS</button>
+      </div>
+    </div>
+  </div>
+
   <script src="script.js"></script>
 </body>
 </html>
