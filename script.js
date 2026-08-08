@@ -12,6 +12,7 @@ const WORDS = [
 ];
 
 const SIZE = 19;
+const SWIPE_THRESHOLD = 18;
 let board = [];
 let placed = [];
 let numberedCells = new Map();
@@ -113,15 +114,15 @@ function assignNumbers() {
   });
 }
 
-function wordsAtCell(r, c) {
-  return placed.filter(p => wordCells(p).some(pos => pos.r === r && pos.c === c));
-}
-
 function wordCells(p) {
   return Array.from({ length: p.word.length }, (_, i) => ({
     r: p.row + (p.dir === 'down' ? i : 0),
     c: p.col + (p.dir === 'across' ? i : 0)
   }));
+}
+
+function wordsAtCell(r, c) {
+  return placed.filter(p => wordCells(p).some(pos => pos.r === r && pos.c === c));
 }
 
 function getCell(r, c) {
@@ -147,6 +148,19 @@ function selectWord(p, currentCell = null) {
 
   const clueItem = document.querySelector(`[data-clue-key="${p.dir}-${p.number}"]`);
   if (clueItem) clueItem.classList.add('active-clue-item');
+}
+
+function selectDirectionAtCell(r, c, dir, div) {
+  const chosen = wordsAtCell(r, c).find(p => p.dir === dir);
+  if (!chosen) return false;
+  selectedCellKey = key(r, c);
+  selectWord(chosen, div);
+  const input = div.querySelector('input');
+  if (input) {
+    input.focus({ preventScroll: true });
+    input.select();
+  }
+  return true;
 }
 
 function chooseDirectionForCell(r, c, div) {
@@ -222,7 +236,41 @@ function render() {
         input.spellcheck = false;
         input.inputMode = 'text';
 
-        input.addEventListener('click', () => chooseDirectionForCell(r, c, div));
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let swipeHandled = false;
+
+        input.addEventListener('touchstart', e => {
+          const t = e.changedTouches[0];
+          touchStartX = t.clientX;
+          touchStartY = t.clientY;
+          swipeHandled = false;
+        }, { passive: true });
+
+        input.addEventListener('touchend', e => {
+          const t = e.changedTouches[0];
+          const dx = t.clientX - touchStartX;
+          const dy = t.clientY - touchStartY;
+          const absX = Math.abs(dx);
+          const absY = Math.abs(dy);
+
+          if (absX < SWIPE_THRESHOLD && absY < SWIPE_THRESHOLD) return;
+
+          if (dx > 0 && absX > absY) {
+            swipeHandled = selectDirectionAtCell(r, c, 'across', div);
+          } else if (dy > 0 && absY > absX) {
+            swipeHandled = selectDirectionAtCell(r, c, 'down', div);
+          }
+        }, { passive: true });
+
+        input.addEventListener('click', e => {
+          if (swipeHandled) {
+            e.preventDefault();
+            swipeHandled = false;
+            return;
+          }
+          chooseDirectionForCell(r, c, div);
+        });
 
         input.addEventListener('focus', () => {
           const options = wordsAtCell(r, c);
@@ -233,7 +281,6 @@ function render() {
               selectWord(chosen, div);
             }
           } else {
-            clearSelection();
             selectWord(activeWord, div);
           }
         });
@@ -252,13 +299,11 @@ function render() {
           }
           if (e.key === 'ArrowRight') {
             e.preventDefault();
-            const across = wordsAtCell(r,c).find(p => p.dir === 'across');
-            if (across) { selectWord(across, div); activeWord = across; moveAlongActiveWord(r,c,1); }
+            if (selectDirectionAtCell(r, c, 'across', div)) moveAlongActiveWord(r, c, 1);
           }
           if (e.key === 'ArrowDown') {
             e.preventDefault();
-            const down = wordsAtCell(r,c).find(p => p.dir === 'down');
-            if (down) { selectWord(down, div); activeWord = down; moveAlongActiveWord(r,c,1); }
+            if (selectDirectionAtCell(r, c, 'down', div)) moveAlongActiveWord(r, c, 1);
           }
         });
 
@@ -322,7 +367,7 @@ function resetBoard() {
   clearSelection();
   activeWord = null;
   selectedCellKey = null;
-  document.getElementById('activeClue').innerHTML = '<span class="active-clue-label">SELECT A WORD</span><strong>盤面のマスをタップすると、その単語をハイライトします。</strong>';
+  document.getElementById('activeClue').innerHTML = '<span class="active-clue-label">SELECT A WORD</span><strong>右スワイプでAcross、下スワイプでDown。タップでも選べます。</strong>';
   document.getElementById('result').textContent = '';
 }
 
