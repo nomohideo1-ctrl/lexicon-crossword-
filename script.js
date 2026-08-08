@@ -1,4 +1,4 @@
-const WORDS = [
+const FALLBACK_WORDS = [
   { word: 'immersive', clue: '没入感のある、夢中にさせる' },
   { word: 'exuberant', clue: '元気いっぱいの、活気に満ちた' },
   { word: 'solitary', clue: 'ひとりの、孤独な' },
@@ -11,7 +11,10 @@ const WORDS = [
   { word: 'sigh', clue: 'ため息をつく／ため息' }
 ];
 
+let WORDS = [...FALLBACK_WORDS];
+
 const SIZE = 19;
+const TARGET_WORDS = 10;
 const SWIPE_THRESHOLD = 18;
 let board = [];
 let placed = [];
@@ -20,19 +23,68 @@ let activeWord = null;
 let selectedCellKey = null;
 let completionShown = false;
 
-function freshBoard() { return Array.from({ length: SIZE }, () => Array(SIZE).fill(null)); }
+function freshBoard() {
+  return Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+}
+
 function key(r, c) { return `${r},${c}`; }
 function inBounds(r, c) { return r >= 0 && c >= 0 && r < SIZE && c < SIZE; }
 
+function shuffle(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function cleanLexiconWords(items) {
+  const seen = new Set();
+  return (items || [])
+    .map(item => ({
+      word: String(item.word || '').trim().toLowerCase(),
+      clue: String(item.clue || '').trim()
+    }))
+    .filter(item => /^[a-z]+$/.test(item.word))
+    .filter(item => item.word.length >= 3 && item.word.length <= 15)
+    .filter(item => item.clue)
+    .filter(item => {
+      if (seen.has(item.word)) return false;
+      seen.add(item.word);
+      return true;
+    });
+}
+
+async function loadWordsFromNotion() {
+  const response = await fetch('/api/words', {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store'
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Notion sync failed (${response.status}): ${detail}`);
+  }
+
+  const data = await response.json();
+  const syncedWords = cleanLexiconWords(data.words);
+  if (syncedWords.length < 5) throw new Error('Not enough usable words returned from Notion');
+  WORDS = syncedWords;
+}
+
 function canPlace(word, row, col, dir) {
   let intersections = 0;
+
   for (let i = 0; i < word.length; i++) {
     const r = row + (dir === 'down' ? i : 0);
     const c = col + (dir === 'across' ? i : 0);
     if (!inBounds(r, c)) return null;
+
     const existing = board[r][c];
     if (existing && existing !== word[i]) return null;
     if (existing === word[i]) intersections++;
+
     if (!existing) {
       if (dir === 'across') {
         if ((inBounds(r - 1, c) && board[r - 1][c]) || (inBounds(r + 1, c) && board[r + 1][c])) return null;
@@ -41,12 +93,14 @@ function canPlace(word, row, col, dir) {
       }
     }
   }
+
   const beforeR = row - (dir === 'down' ? 1 : 0);
   const beforeC = col - (dir === 'across' ? 1 : 0);
   const afterR = row + (dir === 'down' ? word.length : 0);
   const afterC = col + (dir === 'across' ? word.length : 0);
   if (inBounds(beforeR, beforeC) && board[beforeR][beforeC]) return null;
   if (inBounds(afterR, afterC) && board[afterR][afterC]) return null;
+
   return intersections;
 }
 
@@ -60,45 +114,93 @@ function commitPlace(entry, row, col, dir) {
 }
 
 function generateCrossword() {
-  board = freshBoard();
-  placed = [];
   completionShown = false;
-  const words = [...WORDS].sort((a, b) => b.word.length - a.word.length);
-  const first = words.shift();
-  commitPlace(first, Math.floor(SIZE / 2), Math.floor((SIZE - first.word.length) / 2), 'across');
-  for (const entry of words) {
-    const candidates = [];
-    for (const p of placed) {
-      for (let i = 0; i < entry.word.length; i++) {
-        for (let j = 0; j < p.word.length; j++) {
-          if (entry.word[i] !== p.word[j]) continue;
-          const dir = p.dir === 'across' ? 'down' : 'across';
-          const crossR = p.row + (p.dir === 'down' ? j : 0);
-          const crossC = p.col + (p.dir === 'across' ? j : 0);
-          const row = crossR - (dir === 'down' ? i : 0);
-          const col = crossC - (dir === 'across' ? i : 0);
-          const intersections = canPlace(entry.word, row, col, dir);
-          if (intersections !== null && intersections > 0) candidates.push({ row, col, dir, intersections });
+  let bestBoard = null;
+  let bestPlaced = [];
+  const attempts = Math.max(35, Math.min(90, WORDS.length * 3));
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    board = freshBoard();
+    placed = [];
+
+    const poolSize = Math.min(WORDS.length, Math.max(TARGET_WORDS * 3, 20));
+    const words = shuffle(WORDS)
+      .slice(0, poolSize)
+      .sort((a, b) => b.word.length - a.word.length || Math.random() - 0.5);
+
+    const first = words.shift();
+    if (!first) continue;
+
+    commitPlace(
+      first,
+      Math.floor(SIZE / 2),
+      Math.floor((SIZE - first.word.length) / 2),
+      'across'
+    );
+
+    for (const entry of words) {
+      if (placed.length >= TARGET_WORDS) break;
+      const candidates = [];
+
+      for (const p of placed) {
+        for (let i = 0; i < entry.word.length; i++) {
+          for (let j = 0; j < p.word.length; j++) {
+            if (entry.word[i] !== p.word[j]) continue;
+
+            const dir = p.dir === 'across' ? 'down' : 'across';
+            const crossR = p.row + (p.dir === 'down' ? j : 0);
+            const crossC = p.col + (p.dir === 'across' ? j : 0);
+            const row = crossR - (dir === 'down' ? i : 0);
+            const col = crossC - (dir === 'across' ? i : 0);
+            const intersections = canPlace(entry.word, row, col, dir);
+
+            if (intersections !== null && intersections > 0) {
+              candidates.push({ row, col, dir, intersections });
+            }
+          }
         }
       }
+
+      candidates.sort((a, b) => b.intersections - a.intersections || Math.random() - 0.5);
+      if (candidates[0]) {
+        commitPlace(entry, candidates[0].row, candidates[0].col, candidates[0].dir);
+      }
     }
-    candidates.sort((a, b) => b.intersections - a.intersections || Math.random() - 0.5);
-    if (candidates[0]) commitPlace(entry, candidates[0].row, candidates[0].col, candidates[0].dir);
+
+    if (placed.length > bestPlaced.length) {
+      bestBoard = board.map(row => [...row]);
+      bestPlaced = placed.map(p => ({ ...p }));
+    }
+
+    if (bestPlaced.length >= TARGET_WORDS) break;
+  }
+
+  if (bestBoard && bestPlaced.length) {
+    board = bestBoard;
+    placed = bestPlaced.slice(0, TARGET_WORDS);
+  } else {
+    WORDS = [...FALLBACK_WORDS];
+    board = freshBoard();
+    placed = [];
+    const first = WORDS[0];
+    commitPlace(first, Math.floor(SIZE / 2), Math.floor((SIZE - first.word.length) / 2), 'across');
   }
 }
 
 function bounds() {
-  const cells = [];
-  placed.forEach(p => wordCells(p).forEach(pos => cells.push(pos)));
+  const occupied = [];
+  placed.forEach(p => wordCells(p).forEach(pos => occupied.push(pos)));
   return {
-    minR: Math.min(...cells.map(x => x.r)), maxR: Math.max(...cells.map(x => x.r)),
-    minC: Math.min(...cells.map(x => x.c)), maxC: Math.max(...cells.map(x => x.c))
+    minR: Math.min(...occupied.map(x => x.r)),
+    maxR: Math.max(...occupied.map(x => x.r)),
+    minC: Math.min(...occupied.map(x => x.c)),
+    maxC: Math.max(...occupied.map(x => x.c))
   };
 }
 
 function assignNumbers() {
   numberedCells = new Map();
-  [...placed].sort((a,b) => a.row - b.row || a.col - b.col).forEach(p => {
+  [...placed].sort((a, b) => a.row - b.row || a.col - b.col).forEach(p => {
     const k = key(p.row, p.col);
     if (!numberedCells.has(k)) numberedCells.set(k, numberedCells.size + 1);
     p.number = numberedCells.get(k);
@@ -112,25 +214,36 @@ function wordCells(p) {
   }));
 }
 
-function wordsAtCell(r, c) { return placed.filter(p => wordCells(p).some(pos => pos.r === r && pos.c === c)); }
-function getCell(r, c) { return document.querySelector(`.cell[data-row="${r}"][data-col="${c}"]`); }
+function wordsAtCell(r, c) {
+  return placed.filter(p => wordCells(p).some(pos => pos.r === r && pos.c === c));
+}
+
+function getCell(r, c) {
+  return document.querySelector(`.cell[data-row="${r}"][data-col="${c}"]`);
+}
 
 function clearSelection() {
-  document.querySelectorAll('.cell').forEach(c => c.classList.remove('active-word','active-cell'));
+  document.querySelectorAll('.cell').forEach(c => c.classList.remove('active-word', 'active-cell'));
   document.querySelectorAll('.clue-card li').forEach(li => li.classList.remove('active-clue-item'));
 }
 
 function selectWord(p, currentCell = null) {
   activeWord = p;
   clearSelection();
-  wordCells(p).forEach(({r,c}) => {
+
+  wordCells(p).forEach(({ r, c }) => {
     const el = getCell(r, c);
     if (el) el.classList.add('active-word');
   });
+
   if (currentCell) currentCell.classList.add('active-cell');
+
   const direction = p.dir === 'across' ? 'Across' : 'Down';
   const activeClue = document.getElementById('activeClue');
-  if (activeClue) activeClue.innerHTML = `<span class="active-clue-label">${p.number} ${direction}</span><strong>${p.clue}（${p.word.length}文字）</strong>`;
+  if (activeClue) {
+    activeClue.innerHTML = `<span class="active-clue-label">${p.number} ${direction}</span><strong>${p.clue}（${p.word.length}文字）</strong>`;
+  }
+
   const clueItem = document.querySelector(`[data-clue-key="${p.dir}-${p.number}"]`);
   if (clueItem) clueItem.classList.add('active-clue-item');
 }
@@ -138,37 +251,51 @@ function selectWord(p, currentCell = null) {
 function selectDirectionAtCell(r, c, dir, div) {
   const chosen = wordsAtCell(r, c).find(p => p.dir === dir);
   if (!chosen) return false;
+
   selectedCellKey = key(r, c);
   selectWord(chosen, div);
   const input = div.querySelector('input');
-  if (input) { input.focus({ preventScroll: true }); input.select(); }
+  if (input) {
+    input.focus({ preventScroll: true });
+    input.select();
+  }
   return true;
 }
 
 function chooseDirectionForCell(r, c, div) {
   const options = wordsAtCell(r, c);
   if (!options.length) return;
+
   const cellKey = key(r, c);
   let chosen;
+
   if (selectedCellKey === cellKey && options.length > 1) {
     const idx = activeWord ? options.indexOf(activeWord) : -1;
     chosen = options[(idx + 1) % options.length];
-  } else if (activeWord && options.includes(activeWord)) chosen = activeWord;
-  else chosen = options.find(p => p.dir === 'across') || options[0];
+  } else if (activeWord && options.includes(activeWord)) {
+    chosen = activeWord;
+  } else {
+    chosen = options.find(p => p.dir === 'across') || options[0];
+  }
+
   selectedCellKey = cellKey;
   selectWord(chosen, div);
 }
 
 function moveAlongActiveWord(r, c, delta) {
   if (!activeWord) return;
+
   const positions = wordCells(activeWord);
   const idx = positions.findIndex(pos => pos.r === r && pos.c === c);
   if (idx < 0) return;
+
   const nextIndex = idx + delta;
   if (nextIndex < 0 || nextIndex >= positions.length) return;
+
   const next = positions[nextIndex];
   const nextCell = getCell(next.r, next.c);
   if (!nextCell) return;
+
   selectedCellKey = key(next.r, next.c);
   selectWord(activeWord, nextCell);
   const nextInput = nextCell.querySelector('input');
@@ -180,6 +307,7 @@ function fitCrosswordToPanel() {
   const root = document.getElementById('crossword');
   const panel = root.closest('.panel');
   if (!root || !panel) return;
+
   const columns = Number(root.dataset.columns || 1);
   const gap = window.innerWidth <= 680 ? 2 : 3;
   const panelStyles = getComputedStyle(panel);
@@ -196,72 +324,116 @@ function render() {
   const { minR, maxR, minC, maxC } = bounds();
   const root = document.getElementById('crossword');
   const columns = maxC - minC + 1;
+
   root.innerHTML = '';
   root.dataset.columns = columns;
   root.style.gridTemplateColumns = `repeat(${columns}, var(--cell))`;
+
   for (let r = minR; r <= maxR; r++) {
     for (let c = minC; c <= maxC; c++) {
       const ch = board[r][c];
       const div = document.createElement('div');
-      if (!ch) div.className = 'block';
-      else {
+
+      if (!ch) {
+        div.className = 'block';
+      } else {
         div.className = 'cell';
         div.dataset.answer = ch;
         div.dataset.row = r;
         div.dataset.col = c;
-        const n = numberedCells.get(key(r,c));
+
+        const n = numberedCells.get(key(r, c));
         if (n) {
           const span = document.createElement('span');
           span.className = 'num';
           span.textContent = n;
           div.appendChild(span);
         }
+
         const input = document.createElement('input');
         input.maxLength = 1;
         input.autocomplete = 'off';
         input.autocapitalize = 'characters';
         input.spellcheck = false;
         input.inputMode = 'text';
-        let touchStartX = 0, touchStartY = 0, swipeHandled = false;
+
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let swipeHandled = false;
+
         input.addEventListener('touchstart', e => {
           const t = e.changedTouches[0];
-          touchStartX = t.clientX; touchStartY = t.clientY; swipeHandled = false;
+          touchStartX = t.clientX;
+          touchStartY = t.clientY;
+          swipeHandled = false;
         }, { passive: true });
+
         input.addEventListener('touchend', e => {
           const t = e.changedTouches[0];
-          const dx = t.clientX - touchStartX, dy = t.clientY - touchStartY;
-          const absX = Math.abs(dx), absY = Math.abs(dy);
+          const dx = t.clientX - touchStartX;
+          const dy = t.clientY - touchStartY;
+          const absX = Math.abs(dx);
+          const absY = Math.abs(dy);
+
           if (absX < SWIPE_THRESHOLD && absY < SWIPE_THRESHOLD) return;
-          if (dx > 0 && absX > absY) swipeHandled = selectDirectionAtCell(r, c, 'across', div);
-          else if (dy > 0 && absY > absX) swipeHandled = selectDirectionAtCell(r, c, 'down', div);
+          if (dx > 0 && absX > absY) {
+            swipeHandled = selectDirectionAtCell(r, c, 'across', div);
+          } else if (dy > 0 && absY > absX) {
+            swipeHandled = selectDirectionAtCell(r, c, 'down', div);
+          }
         }, { passive: true });
+
         input.addEventListener('click', e => {
-          if (swipeHandled) { e.preventDefault(); swipeHandled = false; return; }
+          if (swipeHandled) {
+            e.preventDefault();
+            swipeHandled = false;
+            return;
+          }
           chooseDirectionForCell(r, c, div);
         });
+
         input.addEventListener('focus', () => {
           const options = wordsAtCell(r, c);
           if (!activeWord || !options.includes(activeWord)) {
             const chosen = options.find(p => p.dir === 'across') || options[0];
-            if (chosen) { selectedCellKey = key(r, c); selectWord(chosen, div); }
-          } else selectWord(activeWord, div);
+            if (chosen) {
+              selectedCellKey = key(r, c);
+              selectWord(chosen, div);
+            }
+          } else {
+            selectWord(activeWord, div);
+          }
         });
+
         input.addEventListener('input', e => {
           const cleaned = e.target.value.replace(/[^a-zA-Z]/g, '').slice(-1).toUpperCase();
           e.target.value = cleaned;
-          div.classList.remove('correct','wrong');
+          div.classList.remove('correct', 'wrong');
           if (cleaned) moveAlongActiveWord(r, c, 1);
         });
+
         input.addEventListener('keydown', e => {
-          if (e.key === 'Backspace' && input.value === '') { e.preventDefault(); moveAlongActiveWord(r, c, -1); }
-          if (e.key === 'ArrowRight') { e.preventDefault(); if (selectDirectionAtCell(r, c, 'across', div)) moveAlongActiveWord(r, c, 1); }
-          if (e.key === 'ArrowDown') { e.preventDefault(); if (selectDirectionAtCell(r, c, 'down', div)) moveAlongActiveWord(r, c, 1); }
+          if (e.key === 'Backspace' && input.value === '') {
+            e.preventDefault();
+            moveAlongActiveWord(r, c, -1);
+          }
+          if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            if (selectDirectionAtCell(r, c, 'across', div)) moveAlongActiveWord(r, c, 1);
+          }
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (selectDirectionAtCell(r, c, 'down', div)) moveAlongActiveWord(r, c, 1);
+          }
         });
+
         div.appendChild(input);
       }
+
       root.appendChild(div);
     }
   }
+
   fitCrosswordToPanel();
   renderClues('across', 'acrossClues');
   renderClues('down', 'downClues');
@@ -270,31 +442,39 @@ function render() {
 function renderClues(dir, id) {
   const list = document.getElementById(id);
   list.innerHTML = '';
-  placed.filter(p => p.dir === dir).sort((a,b) => a.number - b.number).forEach(p => {
-    const li = document.createElement('li');
-    li.value = p.number;
-    li.dataset.clueKey = `${p.dir}-${p.number}`;
-    li.textContent = `${p.clue}（${p.word.length}文字）`;
-    li.addEventListener('click', () => {
-      const first = wordCells(p)[0];
-      const cell = getCell(first.r, first.c);
-      selectedCellKey = key(first.r, first.c);
-      selectWord(p, cell);
-      if (cell) cell.querySelector('input').focus({ preventScroll: true });
+
+  placed
+    .filter(p => p.dir === dir)
+    .sort((a, b) => a.number - b.number)
+    .forEach(p => {
+      const li = document.createElement('li');
+      li.value = p.number;
+      li.dataset.clueKey = `${p.dir}-${p.number}`;
+      li.textContent = `${p.clue}（${p.word.length}文字）`;
+      li.addEventListener('click', () => {
+        const first = wordCells(p)[0];
+        const cell = getCell(first.r, first.c);
+        selectedCellKey = key(first.r, first.c);
+        selectWord(p, cell);
+        if (cell) cell.querySelector('input').focus({ preventScroll: true });
+      });
+      list.appendChild(li);
     });
-    list.appendChild(li);
-  });
 }
 
-function cells() { return [...document.querySelectorAll('.cell')]; }
+function cells() {
+  return [...document.querySelectorAll('.cell')];
+}
 
 function showCompletion() {
   if (completionShown) return;
   completionShown = true;
+
   const all = cells();
   document.body.classList.add('mission-cleared');
   all.forEach((cell, i) => setTimeout(() => cell.classList.add('complete-flash'), i * 28));
   document.getElementById('completeWords').textContent = `${placed.length} / ${placed.length}`;
+
   const overlay = document.getElementById('completeOverlay');
   setTimeout(() => {
     overlay.hidden = false;
@@ -305,6 +485,7 @@ function showCompletion() {
 function checkAnswers() {
   let correct = 0;
   const all = cells();
+
   all.forEach(cell => {
     const input = cell.querySelector('input');
     const ok = input.value.toLowerCase() === cell.dataset.answer;
@@ -312,14 +493,19 @@ function checkAnswers() {
     cell.classList.toggle('wrong', !ok && input.value !== '');
     if (ok) correct++;
   });
+
   const complete = correct === all.length;
-  document.getElementById('result').textContent = complete ? 'SEQUENCE COMPLETE' : `${correct} / ${all.length} 文字正解`;
+  document.getElementById('result').textContent = complete
+    ? 'SEQUENCE COMPLETE'
+    : `${correct} / ${all.length} 文字正解`;
+
   if (complete) showCompletion();
 }
 
 function revealHint() {
   const unknown = cells().filter(cell => cell.querySelector('input').value.toLowerCase() !== cell.dataset.answer);
   if (!unknown.length) return;
+
   const cell = unknown[Math.floor(Math.random() * unknown.length)];
   cell.querySelector('input').value = cell.dataset.answer.toUpperCase();
   cell.classList.add('correct');
@@ -336,10 +522,12 @@ function hideCompletion() {
 function resetBoard() {
   hideCompletion();
   completionShown = false;
+
   cells().forEach(cell => {
     cell.querySelector('input').value = '';
-    cell.classList.remove('correct','wrong');
+    cell.classList.remove('correct', 'wrong');
   });
+
   clearSelection();
   activeWord = null;
   selectedCellKey = null;
@@ -356,6 +544,22 @@ function newPuzzle() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+async function boot() {
+  const result = document.getElementById('result');
+  result.textContent = 'SYNCING LEXICON...';
+
+  try {
+    await loadWordsFromNotion();
+  } catch (error) {
+    console.warn(error);
+    WORDS = [...FALLBACK_WORDS];
+  }
+
+  generateCrossword();
+  render();
+  result.textContent = '';
+}
+
 document.getElementById('checkBtn').addEventListener('click', checkAnswers);
 document.getElementById('hintBtn').addEventListener('click', revealHint);
 document.getElementById('resetBtn').addEventListener('click', resetBoard);
@@ -366,5 +570,4 @@ document.getElementById('reviewWordsBtn').addEventListener('click', () => {
 });
 
 window.addEventListener('resize', fitCrosswordToPanel);
-generateCrossword();
-render();
+boot();
