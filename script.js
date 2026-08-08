@@ -23,6 +23,10 @@ let activeWord = null;
 let selectedCellKey = null;
 let completionShown = false;
 
+function isTabletMode() {
+  return window.innerWidth >= 681 && window.innerWidth <= 1180;
+}
+
 function freshBoard() {
   return Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
 }
@@ -222,9 +226,26 @@ function getCell(r, c) {
   return document.querySelector(`.cell[data-row="${r}"][data-col="${c}"]`);
 }
 
+function getSelectedCell() {
+  if (!selectedCellKey) return null;
+  const [r, c] = selectedCellKey.split(',').map(Number);
+  return getCell(r, c);
+}
+
 function clearSelection() {
   document.querySelectorAll('.cell').forEach(c => c.classList.remove('active-word', 'active-cell'));
   document.querySelectorAll('.clue-card li').forEach(li => li.classList.remove('active-clue-item'));
+}
+
+function updateTabletKeyboardStatus() {
+  const status = document.getElementById('tabletKeyboardStatus');
+  if (!status) return;
+  if (!activeWord || !selectedCellKey) {
+    status.textContent = 'SELECT A CELL';
+    return;
+  }
+  const direction = activeWord.dir === 'across' ? 'ACROSS' : 'DOWN';
+  status.textContent = `${activeWord.number} ${direction}`;
 }
 
 function selectWord(p, currentCell = null) {
@@ -246,6 +267,17 @@ function selectWord(p, currentCell = null) {
 
   const clueItem = document.querySelector(`[data-clue-key="${p.dir}-${p.number}"]`);
   if (clueItem) clueItem.classList.add('active-clue-item');
+  updateTabletKeyboardStatus();
+}
+
+function focusInput(input) {
+  if (!input) return;
+  if (isTabletMode()) {
+    input.blur();
+    return;
+  }
+  input.focus({ preventScroll: true });
+  input.select();
 }
 
 function selectDirectionAtCell(r, c, dir, div) {
@@ -254,11 +286,7 @@ function selectDirectionAtCell(r, c, dir, div) {
 
   selectedCellKey = key(r, c);
   selectWord(chosen, div);
-  const input = div.querySelector('input');
-  if (input) {
-    input.focus({ preventScroll: true });
-    input.select();
-  }
+  focusInput(div.querySelector('input'));
   return true;
 }
 
@@ -298,9 +326,65 @@ function moveAlongActiveWord(r, c, delta) {
 
   selectedCellKey = key(next.r, next.c);
   selectWord(activeWord, nextCell);
-  const nextInput = nextCell.querySelector('input');
-  nextInput.focus({ preventScroll: true });
-  nextInput.select();
+  focusInput(nextCell.querySelector('input'));
+}
+
+function enterTabletLetter(letter) {
+  if (!isTabletMode()) return;
+  const cell = getSelectedCell();
+  if (!cell) return;
+  const input = cell.querySelector('input');
+  if (!input) return;
+
+  input.value = letter.toUpperCase();
+  cell.classList.remove('correct', 'wrong');
+  const r = Number(cell.dataset.row);
+  const c = Number(cell.dataset.col);
+  moveAlongActiveWord(r, c, 1);
+}
+
+function tabletBackspace() {
+  if (!isTabletMode()) return;
+  const cell = getSelectedCell();
+  if (!cell) return;
+  const input = cell.querySelector('input');
+  const r = Number(cell.dataset.row);
+  const c = Number(cell.dataset.col);
+
+  if (input && input.value) {
+    input.value = '';
+    cell.classList.remove('correct', 'wrong');
+  } else {
+    moveAlongActiveWord(r, c, -1);
+    const previous = getSelectedCell();
+    if (previous) {
+      const previousInput = previous.querySelector('input');
+      if (previousInput) previousInput.value = '';
+      previous.classList.remove('correct', 'wrong');
+    }
+  }
+}
+
+function buildTabletKeyboard() {
+  document.querySelectorAll('.keyboard-row[data-row]').forEach(row => {
+    const letters = row.dataset.row.toUpperCase().split('');
+    row.innerHTML = '';
+    letters.forEach(letter => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'keyboard-key';
+      button.textContent = letter;
+      button.addEventListener('pointerdown', e => e.preventDefault());
+      button.addEventListener('click', () => enterTabletLetter(letter));
+      row.appendChild(button);
+    });
+  });
+
+  const backspace = document.getElementById('tabletBackspace');
+  if (backspace) {
+    backspace.addEventListener('pointerdown', e => e.preventDefault());
+    backspace.addEventListener('click', tabletBackspace);
+  }
 }
 
 function fitCrosswordToPanel() {
@@ -313,7 +397,7 @@ function fitCrosswordToPanel() {
   const panelStyles = getComputedStyle(panel);
   const available = panel.clientWidth - parseFloat(panelStyles.paddingLeft) - parseFloat(panelStyles.paddingRight);
   const target = Math.floor((available - gap * (columns - 1)) / columns);
-  const maxCell = window.innerWidth <= 680 ? 34 : 42;
+  const maxCell = isTabletMode() ? 46 : (window.innerWidth <= 680 ? 34 : 42);
   const minCell = window.innerWidth <= 680 ? 10 : 18;
   const cell = Math.max(minCell, Math.min(maxCell, target));
   root.style.setProperty('--cell', `${cell}px`);
@@ -355,7 +439,8 @@ function render() {
         input.autocomplete = 'off';
         input.autocapitalize = 'characters';
         input.spellcheck = false;
-        input.inputMode = 'text';
+        input.inputMode = isTabletMode() ? 'none' : 'text';
+        if (isTabletMode()) input.readOnly = true;
 
         let touchStartX = 0;
         let touchStartY = 0;
@@ -390,6 +475,7 @@ function render() {
             return;
           }
           chooseDirectionForCell(r, c, div);
+          if (isTabletMode()) input.blur();
         });
 
         input.addEventListener('focus', () => {
@@ -403,6 +489,7 @@ function render() {
           } else {
             selectWord(activeWord, div);
           }
+          if (isTabletMode()) input.blur();
         });
 
         input.addEventListener('input', e => {
@@ -437,6 +524,7 @@ function render() {
   fitCrosswordToPanel();
   renderClues('across', 'acrossClues');
   renderClues('down', 'downClues');
+  updateTabletKeyboardStatus();
 }
 
 function renderClues(dir, id) {
@@ -456,7 +544,7 @@ function renderClues(dir, id) {
         const cell = getCell(first.r, first.c);
         selectedCellKey = key(first.r, first.c);
         selectWord(p, cell);
-        if (cell) cell.querySelector('input').focus({ preventScroll: true });
+        if (cell) focusInput(cell.querySelector('input'));
       });
       list.appendChild(li);
     });
@@ -532,6 +620,7 @@ function resetBoard() {
   activeWord = null;
   selectedCellKey = null;
   document.getElementById('result').textContent = '';
+  updateTabletKeyboardStatus();
 }
 
 function newPuzzle() {
@@ -547,6 +636,7 @@ function newPuzzle() {
 async function boot() {
   const result = document.getElementById('result');
   result.textContent = 'SYNCING LEXICON...';
+  buildTabletKeyboard();
 
   try {
     await loadWordsFromNotion();
@@ -569,5 +659,11 @@ document.getElementById('reviewWordsBtn').addEventListener('click', () => {
   document.querySelector('.clues-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
-window.addEventListener('resize', fitCrosswordToPanel);
+window.addEventListener('resize', () => {
+  fitCrosswordToPanel();
+  document.querySelectorAll('.cell input').forEach(input => {
+    input.inputMode = isTabletMode() ? 'none' : 'text';
+    input.readOnly = isTabletMode();
+  });
+});
 boot();
