@@ -203,12 +203,30 @@ function moveAlongActiveWord(r, c, delta) {
   nextInput.select();
 }
 
+function fitCrosswordToPanel() {
+  const root = document.getElementById('crossword');
+  const panel = root.closest('.panel');
+  if (!root || !panel) return;
+
+  const columns = Number(root.dataset.columns || 1);
+  const gap = window.innerWidth <= 680 ? 2 : 3;
+  const panelStyles = getComputedStyle(panel);
+  const available = panel.clientWidth - parseFloat(panelStyles.paddingLeft) - parseFloat(panelStyles.paddingRight);
+  const target = Math.floor((available - gap * (columns - 1)) / columns);
+  const maxCell = window.innerWidth <= 680 ? 34 : 42;
+  const minCell = 18;
+  const cell = Math.max(minCell, Math.min(maxCell, target));
+  root.style.setProperty('--cell', `${cell}px`);
+}
+
 function render() {
   assignNumbers();
   const { minR, maxR, minC, maxC } = bounds();
   const root = document.getElementById('crossword');
+  const columns = maxC - minC + 1;
   root.innerHTML = '';
-  root.style.gridTemplateColumns = `repeat(${maxC - minC + 1}, 1fr)`;
+  root.dataset.columns = columns;
+  root.style.gridTemplateColumns = `repeat(${columns}, var(--cell))`;
 
   for (let r = minR; r <= maxR; r++) {
     for (let c = minC; c <= maxC; c++) {
@@ -313,6 +331,7 @@ function render() {
     }
   }
 
+  fitCrosswordToPanel();
   renderClues('across', 'acrossClues');
   renderClues('down', 'downClues');
 }
@@ -374,6 +393,7 @@ function resetBoard() {
 document.getElementById('checkBtn').addEventListener('click', checkAnswers);
 document.getElementById('hintBtn').addEventListener('click', revealHint);
 document.getElementById('resetBtn').addEventListener('click', resetBoard);
+window.addEventListener('resize', fitCrosswordToPanel);
 
 generateCrossword();
 render();
