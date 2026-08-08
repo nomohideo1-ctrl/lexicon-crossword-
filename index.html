@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lexicon Crossword</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header>
+      <p class="eyebrow">LEXICON TRAINER</p>
+      <h1>Lexicon Crossword</h1>
+      <p class="sub">意味をヒントに、英単語を思い出して埋めよう。</p>
+    </header>
+
+    <section class="panel">
+      <div id="crossword" class="crossword" aria-label="クロスワード盤面"></div>
+    </section>
+
+    <section class="clues-wrap">
+      <div class="clue-card">
+        <h2>Across</h2>
+        <ol id="acrossClues"></ol>
+      </div>
+      <div class="clue-card">
+        <h2>Down</h2>
+        <ol id="downClues"></ol>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button id="checkBtn">答え合わせ</button>
+      <button id="hintBtn" class="secondary">1文字ヒント</button>
+      <button id="resetBtn" class="secondary">リセット</button>
+    </div>
+
+    <p id="result" class="result" aria-live="polite"></p>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
