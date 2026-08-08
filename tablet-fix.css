@@ -1,0 +1,13 @@
+@media (min-width: 681px) and (max-width: 1180px) {
+  .tablet-game-layout .cell {
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .tablet-game-layout .cell input {
+    pointer-events: none !important;
+    user-select: none;
+    -webkit-user-select: none;
+    caret-color: transparent;
+  }
+}
