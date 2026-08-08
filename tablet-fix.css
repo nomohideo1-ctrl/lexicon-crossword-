@@ -1,25 +1,43 @@
-@media (min-width: 681px) and (max-width: 1180px) {
-  .tablet-game-layout .panel {
-    display: flex;
-    justify-content: flex-start;
-    align-items: flex-start;
-  }
-
-  .tablet-game-layout .crossword {
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-    justify-self: start !important;
-  }
-
-  .tablet-game-layout .cell {
-    cursor: pointer;
-    touch-action: manipulation;
-  }
-
-  .tablet-game-layout .cell input {
-    pointer-events: none !important;
-    user-select: none !important;
-    -webkit-user-select: none !important;
-    caret-color: transparent !important;
-  }
+html.tablet-mode .app-shell {
+  width: min(1120px, 96vw);
 }
+
+html.tablet-mode .tablet-game-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr);
+  gap: 14px;
+  align-items: start;
+}
+
+html.tablet-mode .tablet-keyboard {
+  display: block;
+}
+
+html.tablet-mode .tablet-game-layout .panel {
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+html.tablet-mode .tablet-game-layout .crossword {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  justify-self: start !important;
+}
+
+html.tablet-mode .tablet-game-layout .cell {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+html.tablet-mode .tablet-game-layout .cell input {
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  caret-color: transparent !important;
+}
+
+html.tablet-mode .keyboard-row[data-row="qwertyuiop"] { --keys: 10; }
+html.tablet-mode .keyboard-row[data-row="asdfghjkl"] { --keys: 9; }
+html.tablet-mode .keyboard-row[data-row="zxcvbnm"] { --keys: 7; }
