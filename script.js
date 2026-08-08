@@ -16,6 +16,7 @@ let board = [];
 let placed = [];
 let numberedCells = new Map();
 let activeWord = null;
+let selectedCellKey = null;
 
 function freshBoard() {
   return Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
@@ -113,14 +114,7 @@ function assignNumbers() {
 }
 
 function wordsAtCell(r, c) {
-  return placed.filter(p => {
-    for (let i = 0; i < p.word.length; i++) {
-      const pr = p.row + (p.dir === 'down' ? i : 0);
-      const pc = p.col + (p.dir === 'across' ? i : 0);
-      if (pr === r && pc === c) return true;
-    }
-    return false;
-  });
+  return placed.filter(p => wordCells(p).some(pos => pos.r === r && pos.c === c));
 }
 
 function wordCells(p) {
@@ -128,6 +122,10 @@ function wordCells(p) {
     r: p.row + (p.dir === 'down' ? i : 0),
     c: p.col + (p.dir === 'across' ? i : 0)
   }));
+}
+
+function getCell(r, c) {
+  return document.querySelector(`.cell[data-row="${r}"][data-col="${c}"]`);
 }
 
 function clearSelection() {
@@ -139,7 +137,7 @@ function selectWord(p, currentCell = null) {
   activeWord = p;
   clearSelection();
   wordCells(p).forEach(({r,c}) => {
-    const el = document.querySelector(`.cell[data-row="${r}"][data-col="${c}"]`);
+    const el = getCell(r, c);
     if (el) el.classList.add('active-word');
   });
   if (currentCell) currentCell.classList.add('active-cell');
@@ -149,6 +147,46 @@ function selectWord(p, currentCell = null) {
 
   const clueItem = document.querySelector(`[data-clue-key="${p.dir}-${p.number}"]`);
   if (clueItem) clueItem.classList.add('active-clue-item');
+}
+
+function chooseDirectionForCell(r, c, div) {
+  const options = wordsAtCell(r, c);
+  if (!options.length) return;
+
+  const cellKey = key(r, c);
+  let chosen;
+
+  if (selectedCellKey === cellKey && options.length > 1) {
+    const idx = activeWord ? options.indexOf(activeWord) : -1;
+    chosen = options[(idx + 1) % options.length];
+  } else if (activeWord && options.includes(activeWord)) {
+    chosen = activeWord;
+  } else {
+    chosen = options.find(p => p.dir === 'across') || options[0];
+  }
+
+  selectedCellKey = cellKey;
+  selectWord(chosen, div);
+}
+
+function moveAlongActiveWord(r, c, delta) {
+  if (!activeWord) return;
+  const positions = wordCells(activeWord);
+  const idx = positions.findIndex(pos => pos.r === r && pos.c === c);
+  if (idx < 0) return;
+
+  const nextIndex = idx + delta;
+  if (nextIndex < 0 || nextIndex >= positions.length) return;
+
+  const next = positions[nextIndex];
+  const nextCell = getCell(next.r, next.c);
+  if (!nextCell) return;
+
+  selectedCellKey = key(next.r, next.c);
+  selectWord(activeWord, nextCell);
+  const nextInput = nextCell.querySelector('input');
+  nextInput.focus({ preventScroll: true });
+  nextInput.select();
 }
 
 function render() {
@@ -176,31 +214,54 @@ function render() {
           span.textContent = n;
           div.appendChild(span);
         }
+
         const input = document.createElement('input');
         input.maxLength = 1;
         input.autocomplete = 'off';
+        input.autocapitalize = 'characters';
+        input.spellcheck = false;
         input.inputMode = 'text';
+
+        input.addEventListener('click', () => chooseDirectionForCell(r, c, div));
+
         input.addEventListener('focus', () => {
-          const options = wordsAtCell(r,c);
-          let chosen = options[0];
-          if (activeWord && options.includes(activeWord) && options.length > 1) {
-            chosen = options[(options.indexOf(activeWord) + 1) % options.length];
-          } else if (activeWord && options.includes(activeWord)) {
-            chosen = activeWord;
+          const options = wordsAtCell(r, c);
+          if (!activeWord || !options.includes(activeWord)) {
+            const chosen = options.find(p => p.dir === 'across') || options[0];
+            if (chosen) {
+              selectedCellKey = key(r, c);
+              selectWord(chosen, div);
+            }
+          } else {
+            clearSelection();
+            selectWord(activeWord, div);
           }
-          if (chosen) selectWord(chosen, div);
         });
-        input.addEventListener('click', () => {
-          const options = wordsAtCell(r,c);
-          if (options.length > 1) {
-            const idx = activeWord ? options.indexOf(activeWord) : -1;
-            selectWord(options[(idx + 1) % options.length], div);
-          } else if (options[0]) selectWord(options[0], div);
-        });
+
         input.addEventListener('input', e => {
-          e.target.value = e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase();
+          const cleaned = e.target.value.replace(/[^a-zA-Z]/g, '').slice(-1).toUpperCase();
+          e.target.value = cleaned;
           div.classList.remove('correct','wrong');
+          if (cleaned) moveAlongActiveWord(r, c, 1);
         });
+
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Backspace' && input.value === '') {
+            e.preventDefault();
+            moveAlongActiveWord(r, c, -1);
+          }
+          if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            const across = wordsAtCell(r,c).find(p => p.dir === 'across');
+            if (across) { selectWord(across, div); activeWord = across; moveAlongActiveWord(r,c,1); }
+          }
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const down = wordsAtCell(r,c).find(p => p.dir === 'down');
+            if (down) { selectWord(down, div); activeWord = down; moveAlongActiveWord(r,c,1); }
+          }
+        });
+
         div.appendChild(input);
       }
       root.appendChild(div);
@@ -219,7 +280,13 @@ function renderClues(dir, id) {
     li.value = p.number;
     li.dataset.clueKey = `${p.dir}-${p.number}`;
     li.textContent = `${p.clue}（${p.word.length}文字）`;
-    li.addEventListener('click', () => selectWord(p));
+    li.addEventListener('click', () => {
+      const first = wordCells(p)[0];
+      const cell = getCell(first.r, first.c);
+      selectedCellKey = key(first.r, first.c);
+      selectWord(p, cell);
+      if (cell) cell.querySelector('input').focus({ preventScroll: true });
+    });
     list.appendChild(li);
   });
 }
@@ -254,6 +321,7 @@ function resetBoard() {
   });
   clearSelection();
   activeWord = null;
+  selectedCellKey = null;
   document.getElementById('activeClue').innerHTML = '<span class="active-clue-label">SELECT A WORD</span><strong>盤面のマスをタップすると、その単語をハイライトします。</strong>';
   document.getElementById('result').textContent = '';
 }
