@@ -15,16 +15,14 @@ const SIZE = 19;
 let board = [];
 let placed = [];
 let numberedCells = new Map();
+let activeWord = null;
 
 function freshBoard() {
   return Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
 }
 
 function key(r, c) { return `${r},${c}`; }
-
-function inBounds(r, c) {
-  return r >= 0 && c >= 0 && r < SIZE && c < SIZE;
-}
+function inBounds(r, c) { return r >= 0 && c >= 0 && r < SIZE && c < SIZE; }
 
 function canPlace(word, row, col, dir) {
   let intersections = 0;
@@ -83,9 +81,7 @@ function generateCrossword() {
           const row = crossR - (dir === 'down' ? i : 0);
           const col = crossC - (dir === 'across' ? i : 0);
           const intersections = canPlace(entry.word, row, col, dir);
-          if (intersections !== null && intersections > 0) {
-            candidates.push({ row, col, dir, intersections });
-          }
+          if (intersections !== null && intersections > 0) candidates.push({ row, col, dir, intersections });
         }
       }
     }
@@ -109,13 +105,50 @@ function bounds() {
 
 function assignNumbers() {
   numberedCells = new Map();
-  [...placed]
-    .sort((a,b) => a.row - b.row || a.col - b.col)
-    .forEach(p => {
-      const k = key(p.row, p.col);
-      if (!numberedCells.has(k)) numberedCells.set(k, numberedCells.size + 1);
-      p.number = numberedCells.get(k);
-    });
+  [...placed].sort((a,b) => a.row - b.row || a.col - b.col).forEach(p => {
+    const k = key(p.row, p.col);
+    if (!numberedCells.has(k)) numberedCells.set(k, numberedCells.size + 1);
+    p.number = numberedCells.get(k);
+  });
+}
+
+function wordsAtCell(r, c) {
+  return placed.filter(p => {
+    for (let i = 0; i < p.word.length; i++) {
+      const pr = p.row + (p.dir === 'down' ? i : 0);
+      const pc = p.col + (p.dir === 'across' ? i : 0);
+      if (pr === r && pc === c) return true;
+    }
+    return false;
+  });
+}
+
+function wordCells(p) {
+  return Array.from({ length: p.word.length }, (_, i) => ({
+    r: p.row + (p.dir === 'down' ? i : 0),
+    c: p.col + (p.dir === 'across' ? i : 0)
+  }));
+}
+
+function clearSelection() {
+  document.querySelectorAll('.cell').forEach(c => c.classList.remove('active-word','active-cell'));
+  document.querySelectorAll('.clue-card li').forEach(li => li.classList.remove('active-clue-item'));
+}
+
+function selectWord(p, currentCell = null) {
+  activeWord = p;
+  clearSelection();
+  wordCells(p).forEach(({r,c}) => {
+    const el = document.querySelector(`.cell[data-row="${r}"][data-col="${c}"]`);
+    if (el) el.classList.add('active-word');
+  });
+  if (currentCell) currentCell.classList.add('active-cell');
+
+  const direction = p.dir === 'across' ? 'Across' : 'Down';
+  document.getElementById('activeClue').innerHTML = `<span class="active-clue-label">${p.number} ${direction}</span><strong>${p.clue}（${p.word.length}文字）</strong>`;
+
+  const clueItem = document.querySelector(`[data-clue-key="${p.dir}-${p.number}"]`);
+  if (clueItem) clueItem.classList.add('active-clue-item');
 }
 
 function render() {
@@ -147,6 +180,23 @@ function render() {
         input.maxLength = 1;
         input.autocomplete = 'off';
         input.inputMode = 'text';
+        input.addEventListener('focus', () => {
+          const options = wordsAtCell(r,c);
+          let chosen = options[0];
+          if (activeWord && options.includes(activeWord) && options.length > 1) {
+            chosen = options[(options.indexOf(activeWord) + 1) % options.length];
+          } else if (activeWord && options.includes(activeWord)) {
+            chosen = activeWord;
+          }
+          if (chosen) selectWord(chosen, div);
+        });
+        input.addEventListener('click', () => {
+          const options = wordsAtCell(r,c);
+          if (options.length > 1) {
+            const idx = activeWord ? options.indexOf(activeWord) : -1;
+            selectWord(options[(idx + 1) % options.length], div);
+          } else if (options[0]) selectWord(options[0], div);
+        });
         input.addEventListener('input', e => {
           e.target.value = e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase();
           div.classList.remove('correct','wrong');
@@ -167,7 +217,9 @@ function renderClues(dir, id) {
   placed.filter(p => p.dir === dir).sort((a,b) => a.number - b.number).forEach(p => {
     const li = document.createElement('li');
     li.value = p.number;
+    li.dataset.clueKey = `${p.dir}-${p.number}`;
     li.textContent = `${p.clue}（${p.word.length}文字）`;
+    li.addEventListener('click', () => selectWord(p));
     list.appendChild(li);
   });
 }
@@ -184,8 +236,7 @@ function checkAnswers() {
     cell.classList.toggle('wrong', !ok && input.value !== '');
     if (ok) correct++;
   });
-  const result = document.getElementById('result');
-  result.textContent = correct === all.length ? '🎉 完成！全問正解！' : `${correct} / ${all.length} 文字正解`;
+  document.getElementById('result').textContent = correct === all.length ? '🎉 完成！全問正解！' : `${correct} / ${all.length} 文字正解`;
 }
 
 function revealHint() {
@@ -201,6 +252,9 @@ function resetBoard() {
     cell.querySelector('input').value = '';
     cell.classList.remove('correct','wrong');
   });
+  clearSelection();
+  activeWord = null;
+  document.getElementById('activeClue').innerHTML = '<span class="active-clue-label">SELECT A WORD</span><strong>盤面のマスをタップすると、その単語をハイライトします。</strong>';
   document.getElementById('result').textContent = '';
 }
 
