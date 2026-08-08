@@ -1,4 +1,16 @@
 @media (min-width: 681px) and (max-width: 1180px) {
+  .tablet-game-layout .panel {
+    display: flex;
+    justify-content: flex-start;
+    align-items: flex-start;
+  }
+
+  .tablet-game-layout .crossword {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    justify-self: start !important;
+  }
+
   .tablet-game-layout .cell {
     cursor: pointer;
     touch-action: manipulation;
@@ -6,8 +18,8 @@
 
   .tablet-game-layout .cell input {
     pointer-events: none !important;
-    user-select: none;
-    -webkit-user-select: none;
-    caret-color: transparent;
+    user-select: none !important;
+    -webkit-user-select: none !important;
+    caret-color: transparent !important;
   }
 }
