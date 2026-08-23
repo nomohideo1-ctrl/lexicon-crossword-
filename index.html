@@ -3,90 +3,71 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#100e13" />
-  <title>PACK//DEPTH</title>
+  <meta name="theme-color" content="#0c1118" />
+  <title>PIXEL LIFE</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <main id="app" class="app-shell">
-    <section id="homeScreen" class="screen active" aria-label="拠点">
-      <div class="title-block">
-        <div class="eyebrow">BACKPACK ROGUELIKE</div>
-        <h1>PACK<span>//</span>DEPTH</h1>
-        <p>拾え。詰めろ。10階まで生き残れ。</p>
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">A TINY WORLD THAT LIVES WITHOUT YOU</div>
+        <h1>PIXEL <span>LIFE</span></h1>
       </div>
-      <canvas id="homeHero" width="256" height="220" aria-label="巨大なバックパックを背負った探索者"></canvas>
-      <div class="home-stats panel metal-panel">
-        <div><span>帰還XP</span><strong id="metaXp">0</strong></div>
-        <div><span>最高到達</span><strong id="bestFloor">0F</strong></div>
-        <div><span>踏破</span><strong id="clears">0</strong></div>
+      <button id="observeBtn" class="icon-btn" type="button" aria-label="観察モード">◉</button>
+    </header>
+
+    <section class="world-card">
+      <canvas id="world" width="384" height="640" aria-label="時間とともに生活するドット絵の世界"></canvas>
+      <div class="world-hud top-left">
+        <span>XP</span><strong id="xpValue">0</strong>
+        <small id="xpRate">+0.0 / sec</small>
       </div>
-      <button id="startRunBtn" class="primary-btn">ダンジョンへ潜る</button>
-      <button id="openSkillsBtn" class="secondary-btn">スキルツリー</button>
-      <p class="tiny-note">死亡しても、このランで得たXPだけは持ち帰る。</p>
+      <div class="world-hud top-right">
+        <span id="clockLabel">--:--</span>
+        <strong id="weatherLabel">CLEAR</strong>
+      </div>
+      <div class="activity-strip">
+        <span class="pulse-dot"></span>
+        <strong id="activityLabel">小屋で目を覚ました</strong>
+      </div>
     </section>
 
-    <section id="skillsScreen" class="screen" aria-label="スキルツリー">
-      <header class="section-header">
-        <button class="icon-btn" data-back-home aria-label="戻る">‹</button>
-        <div><div class="eyebrow">PERMANENT GROWTH</div><h2>スキルツリー</h2></div>
-        <div class="xp-chip">XP <strong id="skillXp">0</strong></div>
-      </header>
-      <div id="skillTree" class="skill-tree"></div>
-    </section>
+    <section id="controls" class="controls">
+      <div class="stat-row">
+        <article><span>総獲得XP</span><strong id="totalXp">0</strong></article>
+        <article><span>世界レベル</span><strong id="worldLevel">1</strong></article>
+        <article><span>発見</span><strong id="discoveries">0</strong></article>
+      </div>
 
-    <section id="gameScreen" class="screen" aria-label="ダンジョン">
-      <header class="run-header">
-        <div>
-          <div class="eyebrow" id="zoneName">OLD CATACOMB</div>
-          <strong id="floorLabel">FLOOR 01 / 10</strong>
-        </div>
-        <div class="run-xp">RUN XP <strong id="runXp">0</strong></div>
-      </header>
+      <nav class="tabs" aria-label="メニュー">
+        <button class="tab active" data-tab="growth" type="button">成長</button>
+        <button class="tab" data-tab="journal" type="button">日誌</button>
+      </nav>
 
-      <section class="battle-card panel">
-        <canvas id="battleCanvas" width="360" height="228" aria-label="戦闘画面"></canvas>
-        <div class="battle-bars">
-          <div class="bar-row hero-bar"><span>YOU</span><div class="bar"><i id="playerHpBar"></i></div><b id="playerHpText">80/80</b></div>
-          <div class="bar-row enemy-bar"><span id="enemyName">ENEMY</span><div class="bar"><i id="enemyHpBar"></i></div><b id="enemyHpText">0/0</b></div>
+      <section id="growthPanel" class="tab-panel active">
+        <div class="section-copy">
+          <div><span class="eyebrow">UNLOCK THE WORLD</span><h2>XPで暮らしを増やす</h2></div>
+          <p>能力を買うほど、主人公が勝手にすることと風景が増える。</p>
         </div>
-        <div id="combatFeed" class="combat-feed" aria-live="polite">装備を整えて戦闘を開始。</div>
+        <div id="upgradeGrid" class="upgrade-grid"></div>
       </section>
 
-      <section class="pack-section">
-        <div class="pack-heading">
-          <div>
-            <div class="eyebrow">YOUR BACKPACK</div>
-            <strong id="packSizeLabel">5 × 5</strong>
-          </div>
-          <div class="synergy-chip" id="synergyChip">SYNERGY 0</div>
+      <section id="journalPanel" class="tab-panel">
+        <div class="section-copy">
+          <div><span class="eyebrow">LIFE LOG</span><h2>今日の出来事</h2></div>
+          <button id="clearLogBtn" class="text-btn" type="button">ログ消去</button>
         </div>
-        <div id="backpack" class="backpack" aria-label="バックパック"></div>
-        <div id="itemInspector" class="item-inspector panel" hidden>
-          <canvas id="inspectIcon" width="64" height="64"></canvas>
-          <div class="inspect-copy">
-            <strong id="inspectName">Item</strong>
-            <span id="inspectDesc"></span>
-          </div>
-          <div class="inspect-actions">
-            <button id="rotateBtn" class="mini-btn">↻ 回転</button>
-            <button id="discardBtn" class="mini-btn danger">捨てる</button>
-          </div>
-        </div>
-      </section>
-
-      <section id="actionTray" class="action-tray">
-        <button id="battleBtn" class="primary-btn">戦闘開始</button>
+        <ol id="eventLog" class="event-log"></ol>
       </section>
     </section>
 
-    <div id="modal" class="modal" hidden>
-      <div class="modal-card panel">
-        <div class="eyebrow" id="modalEyebrow">VICTORY</div>
-        <h2 id="modalTitle">報酬を選択</h2>
-        <p id="modalText"></p>
-        <div id="rewardChoices" class="reward-choices"></div>
-        <div id="modalActions" class="modal-actions"></div>
+    <div id="offlineModal" class="modal" hidden>
+      <div class="modal-card">
+        <div class="eyebrow">WELCOME BACK</div>
+        <h2>留守のあいだも生きてた</h2>
+        <p id="offlineText"></p>
+        <button id="offlineOk" class="primary-btn" type="button">世界を見る</button>
       </div>
     </div>
 
