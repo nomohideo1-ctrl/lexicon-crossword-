@@ -112,9 +112,11 @@
 
   function makeItem(templateId){ return {id:uid(),templateId,x:0,y:0,rot:0,used:false,next:0}; }
   function tpl(item){ return ITEM_TEMPLATES[item.templateId]; }
+  function rotateShapeOnce(sh){ return sh[0].map((_,c)=>sh.map(r=>r[c]).reverse()); }
   function shapeOf(item){
     let sh=tpl(item).shape.map(r=>[...r]);
-    for(let k=0;k<(item.rot%4);k++) sh = sh[0].map((_,c)=>sh.map(r=>r[c]).reverse());
+    const turns=((item.rot||0)%4+4)%4;
+    for(let k=0;k<turns;k++) sh=rotateShapeOnce(sh);
     return sh;
   }
   function dimsOf(item){ const sh=shapeOf(item); return {w:sh[0].length,h:sh.length}; }
@@ -124,10 +126,25 @@
   }
   function canPlace(item,x,y,ignoreId=item.id){
     const cells=cellsOf(item,x,y);
+    if(!cells.length)return false;
     if(cells.some(([cx,cy])=>cx<0||cy<0||cx>=run.cols||cy>=run.rows))return false;
     const occupied=new Set();
     run.items.filter(i=>i.id!==ignoreId).forEach(i=>cellsOf(i).forEach(([cx,cy])=>occupied.add(`${cx},${cy}`)));
     return !cells.some(([cx,cy])=>occupied.has(`${cx},${cy}`));
+  }
+  function nearestPlacement(item,preferredX,preferredY,maxRadius=1){
+    const d=dimsOf(item);
+    const px0=clamp(preferredX,0,Math.max(0,run.cols-d.w));
+    const py0=clamp(preferredY,0,Math.max(0,run.rows-d.h));
+    const candidates=[];
+    for(let y=0;y<=Math.max(0,run.rows-d.h);y++){
+      for(let x=0;x<=Math.max(0,run.cols-d.w);x++){
+        const dist=Math.abs(x-px0)+Math.abs(y-py0);
+        if(dist<=maxRadius&&canPlace(item,x,y))candidates.push({x,y,dist});
+      }
+    }
+    candidates.sort((a,b)=>a.dist-b.dist||Math.abs(a.y-py0)-Math.abs(b.y-py0)||Math.abs(a.x-px0)-Math.abs(b.x-px0));
+    return candidates[0]||null;
   }
   function addItemToFirstSpace(item){
     for(let y=0;y<run.rows;y++)for(let x=0;x<run.cols;x++) if(canPlace(item,x,y,null)){item.x=x;item.y=y;run.items.push(item);return true;}
@@ -206,28 +223,44 @@
 
   function beginDrag(e,item,el){
     if(run.combat)return;
+    e.preventDefault();
+    const rect=el.getBoundingClientRect();
     el.setPointerCapture?.(e.pointerId);
-    drag={id:item.id,startX:e.clientX,startY:e.clientY,originX:item.x,originY:item.y,moved:false,el,pointerId:e.pointerId};
+    drag={
+      id:item.id,
+      startX:e.clientX,startY:e.clientY,
+      originX:item.x,originY:item.y,
+      grabOffsetX:e.clientX-rect.left,
+      grabOffsetY:e.clientY-rect.top,
+      moved:false,el,pointerId:e.pointerId
+    };
     el.classList.add('dragging');
     el.addEventListener('pointermove',moveDrag);
     el.addEventListener('pointerup',endDrag,{once:true});
     el.addEventListener('pointercancel',endDrag,{once:true});
   }
   function moveDrag(e){
-    if(!drag)return;
+    if(!drag||e.pointerId!==drag.pointerId)return;
+    e.preventDefault();
     const dx=e.clientX-drag.startX,dy=e.clientY-drag.startY;
     if(Math.hypot(dx,dy)>6)drag.moved=true;
     drag.el.style.transform=`translate(${dx}px,${dy}px) scale(1.05)`;
   }
   function endDrag(e){
     if(!drag)return;
-    const d=drag; d.el.removeEventListener('pointermove',moveDrag); d.el.classList.remove('dragging'); d.el.style.transform='';
+    const d=drag;
+    d.el.removeEventListener('pointermove',moveDrag);
+    d.el.classList.remove('dragging');
+    d.el.style.transform='';
     const item=run.items.find(i=>i.id===d.id);
-    if(d.moved&&item){
-      const rect=$('#backpack').getBoundingClientRect(), cell=cellSize();
-      const x=Math.round((e.clientX-rect.left-5)/cell - dimsOf(item).w/2 + .5);
-      const y=Math.round((e.clientY-rect.top-5)/cell - dimsOf(item).h/2 + .5);
-      if(canPlace(item,x,y)){item.x=x;item.y=y;}
+    if(e.type!=='pointercancel'&&d.moved&&item){
+      const rect=$('#backpack').getBoundingClientRect(), cell=cellSize(), size=dimsOf(item);
+      const rawX=(e.clientX-rect.left-5-d.grabOffsetX)/cell;
+      const rawY=(e.clientY-rect.top-5-d.grabOffsetY)/cell;
+      const targetX=clamp(Math.round(rawX),0,Math.max(0,run.cols-size.w));
+      const targetY=clamp(Math.round(rawY),0,Math.max(0,run.rows-size.h));
+      let spot=canPlace(item,targetX,targetY)?{x:targetX,y:targetY}:nearestPlacement(item,targetX,targetY,1);
+      if(spot){item.x=spot.x;item.y=spot.y;}
       else pulseToast('そこには置けない');
       selectedItemId=item.id;
       renderBackpack();
@@ -238,8 +271,14 @@
   function rotateSelected(){
     if(run.combat)return;
     const item=run.items.find(i=>i.id===selectedItemId); if(!item)return;
-    const old=item.rot; item.rot=(item.rot+1)%4;
-    if(!canPlace(item,item.x,item.y)){item.rot=old;pulseToast('回転するスペースがない');}
+    const old={rot:item.rot,x:item.x,y:item.y};
+    item.rot=(item.rot+1)%4;
+    const size=dimsOf(item);
+    const preferredX=clamp(old.x,0,Math.max(0,run.cols-size.w));
+    const preferredY=clamp(old.y,0,Math.max(0,run.rows-size.h));
+    const spot=canPlace(item,preferredX,preferredY)?{x:preferredX,y:preferredY}:nearestPlacement(item,preferredX,preferredY,2);
+    if(spot){item.x=spot.x;item.y=spot.y;}
+    else{item.rot=old.rot;item.x=old.x;item.y=old.y;pulseToast('回転するスペースがない');}
     renderBackpack();
   }
   function discardSelected(){
@@ -485,12 +524,8 @@
     if(f.type==='enemyHit'){ctx.fillStyle='#d94c48';for(let i=0;i<6;i++)ctx.fillRect(f.x-rand(4,22)*p,f.y+rand(-15,15)*p,4,4);}
     if(f.type==='heal'){ctx.fillStyle='#7be1a4';ctx.fillRect(f.x-2,f.y-16,4,32);ctx.fillRect(f.x-16,f.y-2,32,4);}if(f.type==='block'){ctx.strokeStyle='#7bd5df';ctx.lineWidth=3;ctx.strokeRect(f.x-16-p*8,f.y-20-p*8,32+p*16,40+p*16);}ctx.restore();}
 
-  function drawItemIcon(cv,item,fit=false){
-    const ctx=cv.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.clearRect(0,0,cv.width,cv.height);const t=ITEM_TEMPLATES[item.templateId],p=t.palette;
-    const w=cv.width,h=cv.height;
-    const cx=w/2,cy=h/2;
-    ctx.save();ctx.translate(cx,cy);if(item.rot)ctx.rotate(item.rot*Math.PI/2);ctx.translate(-cx,-cy);
-    const sx=w/48,sy=h/48;
+  function paintItemArt(ctx,w,h,t){
+    const p=t.palette, sx=w/48, sy=h/48;
     const R=(x,y,ww,hh,c)=>{ctx.fillStyle=c;ctx.fillRect(Math.round(x*sx),Math.round(y*sy),Math.max(1,Math.round(ww*sx)),Math.max(1,Math.round(hh*sy)));};
     if(t.icon==='knife'||t.icon==='cleaver'||t.icon==='fireSword'){
       R(22,5,6,29,p[1]);R(23,7,4,25,p[2]);R(20,32,10,4,p[3]);R(22,36,6,9,p[0]);R(24,37,2,8,p[1]);if(t.icon==='fireSword'){R(17,8,4,8,p[2]);R(28,12,4,7,p[2]);R(19,4,3,5,p[3]);}
@@ -510,8 +545,36 @@
     } else if(t.icon==='mask'){
       R(11,9,26,30,p[0]);R(14,7,20,30,p[2]);R(17,12,5,7,p[3]);R(27,12,5,7,p[3]);R(20,25,9,4,p[1]);R(18,35,13,5,p[1]);
     }
+  }
+
+  function drawItemIcon(cv,item,fit=false){
+    const ctx=cv.getContext('2d');
+    ctx.imageSmoothingEnabled=false;
+    ctx.clearRect(0,0,cv.width,cv.height);
+    const t=ITEM_TEMPLATES[item.templateId];
+    const baseShape=t.shape;
+    const baseW=baseShape[0].length*48;
+    const baseH=baseShape.length*48;
+    const art=document.createElement('canvas');
+    art.width=baseW; art.height=baseH;
+    const ax=art.getContext('2d'); ax.imageSmoothingEnabled=false;
+    paintItemArt(ax,baseW,baseH,t);
+
+    const turns=((item.rot||0)%4+4)%4;
+    const rotatedW=turns%2?baseH:baseW;
+    const rotatedH=turns%2?baseW:baseH;
+    const pad=fit?6:0;
+    const scale=fit?Math.min((cv.width-pad*2)/rotatedW,(cv.height-pad*2)/rotatedH):1;
+
+    ctx.save();
+    ctx.translate(cv.width/2,cv.height/2);
+    ctx.scale(scale,scale);
+    ctx.rotate(turns*Math.PI/2);
+    ctx.drawImage(art,-baseW/2,-baseH/2);
     ctx.restore();
-    ctx.fillStyle=t.rarity==='epic'?'#b86bd2':t.rarity==='rare'?'#64c4d7':t.rarity==='uncommon'?'#79bf78':'#8c7358';ctx.fillRect(2,2,Math.max(3,w*.07),Math.max(3,h*.07));
+
+    ctx.fillStyle=t.rarity==='epic'?'#b86bd2':t.rarity==='rare'?'#64c4d7':t.rarity==='uncommon'?'#79bf78':'#8c7358';
+    ctx.fillRect(2,2,Math.max(3,cv.width*.07),Math.max(3,cv.height*.07));
   }
 
   function drawSkillIcon(cv,icon,color){const ctx=cv.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.clearRect(0,0,48,48);ctx.fillStyle='#141217';ctx.fillRect(0,0,48,48);ctx.fillStyle=color;
