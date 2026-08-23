@@ -1,0 +1,32 @@
+name: Apply PIXEL LIFE detail pass v2
+
+on:
+  push:
+    paths:
+      - 'scripts/detail-pass-v2.mjs'
+      - '.github/workflows/detail-pass-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  detail:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Apply detail pass
+        run: node scripts/detail-pass-v2.mjs
+      - name: Check syntax
+        run: node --check game.js
+      - name: Commit detailed world
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add game.js
+          git diff --cached --quiet && exit 0
+          git commit -m "Increase PIXEL LIFE pixel detail"
+          git push
